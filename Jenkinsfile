@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         APP_NAME = 'student-portal'
-        IMAGE_TAG = 'jenkins-local'
         CLUSTER_NAME = 'student-lab'
         K8S_NAMESPACE = 'default'
         KUBECONFIG = '/var/lib/jenkins/.kube/config'
@@ -13,10 +12,10 @@ pipeline {
         stage('Checkout and Validate') {
             steps {
                 sh '''
-                    echo "Checking application files..."
                     test -f index.html
                     test -f Dockerfile
-                    echo "Validation successful"
+                    echo "Application files verified"
+                    grep -n "Version:" index.html || true
                 '''
             }
         }
@@ -24,6 +23,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
+                    IMAGE_TAG="build-${BUILD_NUMBER}"
                     docker build -t ${APP_NAME}:${IMAGE_TAG} .
                 '''
             }
@@ -32,7 +32,9 @@ pipeline {
         stage('Load Image into kind') {
             steps {
                 sh '''
-                    kind load docker-image ${APP_NAME}:${IMAGE_TAG} \
+                    IMAGE_TAG="build-${BUILD_NUMBER}"
+                    kind load docker-image \
+                      ${APP_NAME}:${IMAGE_TAG} \
                       --name ${CLUSTER_NAME}
                 '''
             }
@@ -41,6 +43,8 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 sh '''
+                    IMAGE_TAG="build-${BUILD_NUMBER}"
+
                     kubectl set image \
                       deployment/${APP_NAME} \
                       ${APP_NAME}=${APP_NAME}:${IMAGE_TAG} \
@@ -57,9 +61,15 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
-                    kubectl get deployment ${APP_NAME}
-                    kubectl get pods -l app=${APP_NAME}
-                    kubectl get service ${APP_NAME}
+                    kubectl get deployment ${APP_NAME} \
+                      -n ${K8S_NAMESPACE}
+
+                    kubectl get pods \
+                      -l app=${APP_NAME} \
+                      -n ${K8S_NAMESPACE}
+
+                    kubectl get service ${APP_NAME} \
+                      -n ${K8S_NAMESPACE}
                 '''
             }
         }
@@ -67,10 +77,10 @@ pipeline {
 
     post {
         success {
-            echo 'SUCCESS: Student Portal deployed to local Kubernetes.'
+            echo 'SUCCESS: New image deployed to local Kubernetes.'
         }
         failure {
-            echo 'FAILED: Check the stage logs for the error.'
+            echo 'FAILED: Check Console Output for the first error.'
         }
     }
 }
