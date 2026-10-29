@@ -1,0 +1,59 @@
+
+name: Student Portal CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Validate and Build Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Validate application files
+        run: |
+          test -f index.html
+          test -f Dockerfile
+          echo "Application files verified"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t student-portal:${GITHUB_SHA} .
+
+      - name: Smoke test application
+        run: |
+          docker run -d \
+            --name student-portal-test \
+            -p 127.0.0.1:8081:80 \
+            student-portal:${GITHUB_SHA}
+
+          trap 'docker rm -f student-portal-test >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 10); do
+            if curl -fsS http://127.0.0.1:8081 \
+              -o /tmp/student-portal.html; then
+              if grep -q "Welcome to the Student Portal" \
+                /tmp/student-portal.html; then
+                echo "Smoke test passed"
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+
+          echo "Smoke test failed"
+          docker logs student-portal-test
+          exit 1
